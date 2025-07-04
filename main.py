@@ -1,9 +1,15 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from PIL import Image
 from io import BytesIO
+import os
+import numpy as np
+from scipy.io.wavfile import write
 
 app = Flask(__name__)
+UPLOAD_FOLDER = "audio_files"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# Colores base y sus frecuencias
 base_colors = {
     "rojo": {"rgb": [255, 0, 0], "freq": 261.63},
     "naranja": {"rgb": [255, 165, 0], "freq": 293.66},
@@ -14,21 +20,23 @@ base_colors = {
     "violeta": {"rgb": [138, 43, 226], "freq": 493.88}
 }
 
-def closest_color(rgb):
-    def distance(c1, c2):
-        return sum((a - b) ** 2 for a, b in zip(c1, c2)) ** 0.5
+def distance(c1, c2):
+    return sum((a - b) ** 2 for a, b in zip(c1, c2)) ** 0.5
 
+def closest_color(rgb):
     distances = {name: distance(rgb, data["rgb"]) for name, data in base_colors.items()}
     sorted_colors = sorted(distances.items(), key=lambda x: x[1])
-
+    
     if sorted_colors[0][1] < 60:
         name = sorted_colors[0][0]
-        freq = [base_colors[name]["freq"]]
-        return name, freq
+        freqs = [base_colors[name]["freq"]]
     else:
         name1, name2 = sorted_colors[0][0], sorted_colors[1][0]
-        freq = [base_colors[name1]["freq"], base_colors[name2]["freq"]]
-        return f"{name1}-{name2}", freq
+        freq1 = base_colors[name1]["freq"]
+        freq2 = base_colors[name2]["freq"]
+        freqs = [(freq1 + freq2) / 2]
+
+    return freqs
 
 def get_palette(image, num_colors=3):
     image = image.resize((100, 100))
@@ -42,9 +50,30 @@ def get_palette(image, num_colors=3):
         colors.append([r, g, b])
     return colors
 
+def generate_audio(freqs, filename="resultado.wav"):
+    rate = 44100
+    duration = 1.5
+    audio = np.zeros(int(rate * duration))
+
+    for freq in freqs:
+        t = np.linspace(0, duration, int(rate * duration), False)
+        tone = np.sin(freq * t * 2 * np.pi)
+        audio += tone
+
+    audio = audio / np.max(np.abs(audio))
+    audio = np.int16(audio * 32767)
+
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    write(filepath, rate, audio)
+    return filepath
+
 @app.route("/")
 def home():
     return "API activa - Enviar imagen a /analyze"
+
+@app.route("/audio/<filename>")
+def serve_audio(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
@@ -55,16 +84,16 @@ def analyze():
     image = Image.open(BytesIO(image_file.read()))
     palette = get_palette(image)
 
-    results = []
+    all_freqs = []
     for color in palette:
-        name, freqs = closest_color(color)
-        results.append({
-            "color_detectado": color,
-            "equivalente": name,
-            "frecuencias": freqs
-        })
+        freqs = closest_color(color)
+        all_freqs.extend(freqs)
 
-    return jsonify(results)
+    audio_filename = "resultado.wav"
+    filepath = generate_audio(all_freqs, audio_filename)
+    audio_url = request.host_url + "audio/" + audio_filename
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    return jsonify({
+        "frecuencias": all_freqs,
+        "audio_url": audio_url
+    })
