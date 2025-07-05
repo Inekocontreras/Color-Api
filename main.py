@@ -50,23 +50,43 @@ def get_palette(image, num_colors=3):
         colors.append([r, g, b])
     return colors
 
-def generate_audio(freqs, filename="resultado.wav"):
-    rate = 44100
-    duration = 1.5
-    audio = np.zeros(int(rate * duration))
+import numpy as np
+import wave
+import os
+
+def generate_audio(freqs, filename):
+    sample_rate = 44100
+    total_duration = 10 if len(freqs) <= 5 else 15  # segundos totales
+    duration_per_freq = total_duration / len(freqs)
+
+    audio_data = []
 
     for freq in freqs:
-        t = np.linspace(0, duration, int(rate * duration), False)
-        tone = np.sin(freq * t * 2 * np.pi)
-        audio += tone
+        if isinstance(freq, list):
+            for sub_freq in freq:
+                t = np.linspace(0, duration_per_freq / 2, int(sample_rate * (duration_per_freq / 2)), False)
+                tone = np.sin(2 * np.pi * sub_freq * t)
+                audio_data.extend(tone)
+        else:
+            t = np.linspace(0, duration_per_freq, int(sample_rate * duration_per_freq), False)
+            tone = np.sin(2 * np.pi * freq * t)
+            audio_data.extend(tone)
 
-    audio = audio / np.max(np.abs(audio))
-    audio = np.int16(audio * 32767)
+    audio_data = np.array(audio_data)
+    audio_data *= 32767 / np.max(np.abs(audio_data))  # normalización
+    audio_data = audio_data.astype(np.int16)
 
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    write(filepath, rate, audio)
+    output_path = os.path.join("static", "audio")
+    os.makedirs(output_path, exist_ok=True)
+    filepath = os.path.join(output_path, filename)
+
+    with wave.open(filepath, "w") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(sample_rate)
+        f.writeframes(audio_data.tobytes())
+
     return filepath
-
 @app.route("/")
 def home():
     return "API activa - Enviar imagen a /analyze"
@@ -97,6 +117,37 @@ def analyze():
         "frecuencias": all_freqs,
         "audio_url": audio_url
     })
+import numpy as np
+import wave
+
+def generate_sound(freqs, output_file="static/audio/resultado.wav"):
+    sample_rate = 44100
+    total_duration = 10 if len(freqs) <= 5 else 15  # segundos
+    duration_per_freq = total_duration / len(freqs)
+    
+    audio_data = []
+
+    for freq_set in freqs:
+        if isinstance(freq_set, list):  # mezcla de 2 frecuencias
+            # 50% tiempo para cada una
+            for freq in freq_set:
+                t = np.linspace(0, duration_per_freq / 2, int(sample_rate * (duration_per_freq / 2)), False)
+                tone = np.sin(2 * np.pi * freq * t)
+                audio_data.extend(tone)
+        else:
+            t = np.linspace(0, duration_per_freq, int(sample_rate * duration_per_freq), False)
+            tone = np.sin(2 * np.pi * freq_set * t)
+            audio_data.extend(tone)
+
+    audio_data = np.array(audio_data)
+    audio_data *= 32767 / np.max(np.abs(audio_data))
+    audio_data = audio_data.astype(np.int16)
+
+    with wave.open(output_file, "w") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(sample_rate)
+        f.writeframes(audio_data.tobytes())
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
