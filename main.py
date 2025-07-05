@@ -54,10 +54,6 @@ import numpy as np
 import wave
 import os
 
-import numpy as np
-import wave
-import os
-
 def generate_audio(freqs, filename):
     sample_rate = 44100
     total_duration = 10 if len(freqs) <= 5 else 15
